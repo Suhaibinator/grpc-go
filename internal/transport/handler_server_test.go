@@ -19,6 +19,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,7 +29,9 @@ import (
 	"net/url"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	epb "google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -611,4 +614,125 @@ func checkHeaderAndTrailer(t *testing.T, rw testHandlerResponseWriter, wantHeade
 	if actualTrailer := rw.Result().Trailer; !reflect.DeepEqual(actualTrailer, wantTrailer) {
 		t.Errorf("Trailer mismatch.\n got: %#v\n want: %#v", actualTrailer, wantTrailer)
 	}
+}
+
+type handlerTrackingPool struct {
+	mem.BufferPool
+	outstanding atomic.Int64
+}
+
+func (p *handlerTrackingPool) Get(size int) *[]byte {
+	p.outstanding.Add(1)
+	return p.BufferPool.Get(size)
+}
+
+func (p *handlerTrackingPool) Put(buf *[]byte) {
+	p.outstanding.Add(-1)
+	p.BufferPool.Put(buf)
+}
+
+func (s) TestHandlerTransport_ReadBackpressure(t *testing.T) {
+	for _, finishEarly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("finishEarly=%v", finishEarly), func(t *testing.T) {
+			st := newHandleStreamTest(t, nil)
+			pool := &handlerTrackingPool{BufferPool: mem.DefaultBufferPool()}
+			st.ht.bufferPool = pool
+			ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+			defer cancel()
+			defer st.bodyw.Close()
+			streams := make(chan *ServerStream, 1)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				st.ht.HandleStreams(ctx, func(stream *ServerStream) { streams <- stream })
+			}()
+			var stream *ServerStream
+			select {
+			case stream = <-streams:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			chunk := bytes.Repeat([]byte("a"), http2MaxFrameLen)
+			writes := make(chan error, 3)
+			go func() {
+				defer st.bodyw.Close()
+				for i := 0; i < 3; i++ {
+					_, err := st.bodyw.Write(chunk)
+					writes <- err
+					if err != nil {
+						return
+					}
+				}
+			}()
+			// One chunk can be queued and one held by the producer. A third body read
+			// must wait for application consumption, even for a very long RPC.
+			for i := 0; i < 2; i++ {
+				select {
+				case err := <-writes:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			select {
+			case err := <-writes:
+				t.Fatalf("third write completed before consuming: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if !finishEarly {
+				data, err := stream.Read(3 * http2MaxFrameLen)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := data.Materialize(); !bytes.Equal(got, bytes.Repeat(chunk, 3)) {
+					t.Errorf("read payload differs from written payload")
+				}
+				data.Free()
+			}
+			if err := stream.WriteStatus(status.New(codes.OK, "")); err != nil {
+				t.Fatal(err)
+			}
+			// Writing status must also wake a producer blocked on the bounded channel.
+			select {
+			case <-done:
+			case <-ctx.Done():
+				t.Fatal("HandleStreams did not finish")
+			}
+			if got := pool.outstanding.Load(); got != 0 {
+				t.Errorf("outstanding pooled buffers = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func (s) TestHandlerTransport_ShortReadWithEOF(t *testing.T) {
+	st := newHandleStreamTest(t, nil)
+	st.bodyw.Close()
+	want := []byte("short payload")
+	st.ht.req.Body = io.NopCloser(iotest.DataErrReader(bytes.NewReader(want)))
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+	defer cancel()
+	st.ht.HandleStreams(ctx, func(stream *ServerStream) {
+		go func() {
+			data, err := stream.Read(len(want))
+			if err != nil {
+				t.Error(err)
+			} else {
+				if got := data.Materialize(); !bytes.Equal(got, want) {
+					t.Errorf("payload = %q, want %q", got, want)
+				}
+				data.Free()
+			}
+			if _, err := stream.Read(1); err != io.EOF {
+				t.Errorf("final read = %v, want EOF", err)
+			}
+			if err := stream.WriteStatus(status.New(codes.OK, "")); err != nil {
+				t.Error(err)
+			}
+		}()
+	})
 }

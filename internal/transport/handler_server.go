@@ -437,16 +437,34 @@ func (ht *serverHandlerTransport) HandleStreams(ctx context.Context, startStream
 		defer close(readerDone)
 
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			buf := ht.bufferPool.Get(http2MaxFrameLen)
-			n, err := req.Body.Read(*buf)
+			n, err := req.Body.Read((*buf)[:http2MaxFrameLen])
 			if n > 0 {
 				*buf = (*buf)[:n]
-				s.buf.put(recvMsg{buffer: mem.NewBuffer(buf, ht.bufferPool)})
+				msg := recvMsg{buffer: mem.NewBuffer(buf, ht.bufferPool)}
+				// This is the only producer for the handler stream. Send directly
+				// to the bounded channel so a paused consumer stops body reads,
+				// retaining net/http's receive backpressure. Do not use put,
+				// which would append unread data to the unbounded backlog.
+				select {
+				case s.buf.c <- msg:
+				case <-ctx.Done():
+					msg.buffer.Free()
+					return
+				}
 			} else {
 				ht.bufferPool.Put(buf)
 			}
 			if err != nil {
-				s.buf.put(recvMsg{err: mapRecvMsgError(err)})
+				select {
+				case s.buf.c <- recvMsg{err: mapRecvMsgError(err)}:
+				case <-ctx.Done():
+				}
 				return
 			}
 		}
@@ -464,6 +482,15 @@ func (ht *serverHandlerTransport) HandleStreams(ctx context.Context, startStream
 	// Wait for reading goroutine to finish.
 	req.Body.Close()
 	<-readerDone
+	// The producer has stopped. Release any buffer still queued when the
+	// application finished; a concurrent reader can only receive it once.
+	select {
+	case msg := <-s.buf.c:
+		if msg.buffer != nil {
+			msg.buffer.Free()
+		}
+	default:
+	}
 }
 
 func (ht *serverHandlerTransport) runStream() {
