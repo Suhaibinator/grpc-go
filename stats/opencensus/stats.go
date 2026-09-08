@@ -26,6 +26,7 @@ import (
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/internal"
@@ -98,9 +99,16 @@ func (csh *clientStatsHandler) statsTagRPC(ctx context.Context, info *stats.RPCT
 // Metadata, and adds a server method tag to the opencensus tags. If multiple
 // tags exist, it adds the last one.
 func (ssh *serverStatsHandler) statsTagRPC(ctx context.Context, info *stats.RPCTagInfo) (context.Context, *metricsInfo) {
+	// Unknown handlers can receive arbitrary method names; keep metric labels
+	// bounded by the registered method set.
+	method := info.FullMethodName
+	server := internal.ServerFromContext.(func(context.Context) *grpc.Server)(ctx)
+	if server == nil || !internal.IsRegisteredMethod.(func(*grpc.Server, string) bool)(server, method) {
+		method = "other"
+	}
 	mi := &metricsInfo{
 		startTime: time.Now(),
-		method:    info.FullMethodName,
+		method:    method,
 	}
 
 	if tgValues := metadata.ValueFromIncomingContext(ctx, "grpc-tags-bin"); len(tgValues) > 0 {
@@ -114,7 +122,7 @@ func (ssh *serverStatsHandler) statsTagRPC(ctx context.Context, info *stats.RPCT
 	// passed in is returned. If the call errors, the server side application
 	// layer won't get this key server method information in the tag map, but
 	// this instrumentation code will function as normal.
-	ctx, _ = tag.New(ctx, tag.Upsert(keyServerMethod, removeLeadingSlash(info.FullMethodName)))
+	ctx, _ = tag.New(ctx, tag.Upsert(keyServerMethod, removeLeadingSlash(method)))
 	return ctx, mi
 }
 
