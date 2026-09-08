@@ -151,3 +151,105 @@ func (s) TestListResourceExhausted(t *testing.T) {
 		t.Fatalf("s.List(ctx, &in) returned %v, want %v", err, want)
 	}
 }
+
+// watchServer provides bounded in-process status delivery for lifecycle tests.
+type watchServer struct {
+	healthpb.Health_WatchServer
+	ctx       context.Context
+	responses chan healthpb.HealthCheckResponse_ServingStatus
+	sendErr   error
+}
+
+func (w *watchServer) Context() context.Context { return w.ctx }
+
+func (w *watchServer) Send(r *healthpb.HealthCheckResponse) error {
+	if w.sendErr != nil {
+		return w.sendErr
+	}
+	select {
+	case w.responses <- r.Status:
+		return nil
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	}
+}
+
+func (s) TestWatchSubscriberCleanup(t *testing.T) {
+	for _, known := range []bool{false, true} {
+		t.Run(fmt.Sprintf("known_%v", known), func(t *testing.T) {
+			server := NewServer()
+			const service = "service"
+			initial := healthpb.HealthCheckResponse_SERVICE_UNKNOWN
+			if known {
+				initial = healthpb.HealthCheckResponse_SERVING
+				server.SetServingStatus(service, initial)
+			}
+			start := func() (*watchServer, context.CancelFunc, <-chan error) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				t.Cleanup(cancel)
+				w := &watchServer{ctx: ctx, responses: make(chan healthpb.HealthCheckResponse_ServingStatus, 1)}
+				done := make(chan error, 1)
+				go func() { done <- server.Watch(&healthpb.HealthCheckRequest{Service: service}, w) }()
+				return w, cancel, done
+			}
+			receive := func(w *watchServer, want healthpb.HealthCheckResponse_ServingStatus) {
+				t.Helper()
+				select {
+				case got := <-w.responses:
+					if got != want {
+						t.Fatalf("status = %v, want %v", got, want)
+					}
+				case <-w.ctx.Done():
+					t.Fatal("timed out waiting for status")
+				}
+			}
+			stop := func(cancel context.CancelFunc, done <-chan error) {
+				t.Helper()
+				cancel()
+				select {
+				case err := <-done:
+					if status.Code(err) != codes.Canceled {
+						t.Fatalf("Watch returned %v, want Canceled", err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for Watch to exit")
+				}
+			}
+			first, cancelFirst, doneFirst := start()
+			second, cancelSecond, doneSecond := start()
+			receive(first, initial)
+			receive(second, initial)
+			stop(cancelFirst, doneFirst)
+			server.mu.RLock()
+			remaining := len(server.updates[service])
+			server.mu.RUnlock()
+			if remaining != 1 {
+				t.Fatalf("remaining subscribers = %d, want 1", remaining)
+			}
+			server.SetServingStatus(service, healthpb.HealthCheckResponse_NOT_SERVING)
+			receive(second, healthpb.HealthCheckResponse_NOT_SERVING)
+			stop(cancelSecond, doneSecond)
+			if _, ok := server.updates[service]; ok {
+				t.Fatal("last subscriber left an updates entry")
+			}
+			// A new watch still receives the configured status after cleanup.
+			third, cancelThird, doneThird := start()
+			receive(third, healthpb.HealthCheckResponse_NOT_SERVING)
+			stop(cancelThird, doneThird)
+			if len(server.updates) != 0 {
+				t.Fatalf("updates contains %d entries, want none", len(server.updates))
+			}
+		})
+	}
+}
+
+func (s) TestWatchSendFailureCleanup(t *testing.T) {
+	server := NewServer()
+	w := &watchServer{ctx: context.Background(), sendErr: errors.New("send failed")}
+	if err := server.Watch(&healthpb.HealthCheckRequest{Service: "service"}, w); status.Code(err) != codes.Canceled {
+		t.Fatalf("Watch returned %v, want Canceled", err)
+	}
+	if len(server.updates) != 0 {
+		t.Fatalf("updates contains %d entries, want none", len(server.updates))
+	}
+}
