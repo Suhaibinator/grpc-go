@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc/internal/leakcheck"
 	"google.golang.org/grpc/internal/stubserver"
 	"google.golang.org/grpc/internal/testutils"
+	"google.golang.org/grpc/stats"
 
 	testgrpc "google.golang.org/grpc/interop/grpc_testing"
 	testpb "google.golang.org/grpc/interop/grpc_testing"
@@ -1615,5 +1616,84 @@ func (s) TestSpan(t *testing.T) {
 	}
 	if !cmp.Equal(fe.seenSpans[0].parentSpanID, fe.seenSpans[2].sc.SpanID) {
 		t.Fatalf("client attempt span should point to the client call span as its parent. parentSpanID: %v, clientCallSpanID: %v", fe.seenSpans[0].parentSpanID, fe.seenSpans[2].sc.SpanID)
+	}
+}
+
+// TestServerMethodLabels verifies normalization at the common stats boundary for
+// both transports, including the metric state used again by Begin and End.
+func (s) TestServerMethodLabels(t *testing.T) {
+	for _, handlerTransport := range []bool{false, true} {
+		t.Run(fmt.Sprintf("handlerTransport=%v", handlerTransport), func(t *testing.T) {
+			type labels struct{ method, tag string }
+			received := make(chan labels, 1)
+			capture := func(ctx context.Context) {
+				methodTag, _ := tag.FromContext(ctx).Value(keyServerMethod)
+				received <- labels{getRPCInfo(ctx).mi.method, methodTag}
+			}
+			ss := &stubserver.StubServer{
+				EmptyCallF: func(ctx context.Context, _ *testpb.Empty) (*testpb.Empty, error) {
+					capture(ctx)
+					return &testpb.Empty{}, nil
+				},
+				FullDuplexCallF: func(stream testgrpc.TestService_FullDuplexCallServer) error { capture(stream.Context()); return nil },
+			}
+			opts := []grpc.ServerOption{ServerOption(TraceOptions{DisableTrace: true}), grpc.UnknownServiceHandler(func(_ any, stream grpc.ServerStream) error { capture(stream.Context()); return nil })}
+			start := ss.StartServer
+			if handlerTransport {
+				start = ss.StartHandlerServer
+			}
+			if err := start(opts...); err != nil {
+				t.Fatal(err)
+			}
+			defer ss.Stop()
+			if err := ss.StartClient(); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+			defer cancel()
+			for _, tc := range []struct{ method, want string }{
+				{"/grpc.testing.TestService/EmptyCall", "/grpc.testing.TestService/EmptyCall"},
+				{"/grpc.testing.TestService/FullDuplexCall", "/grpc.testing.TestService/FullDuplexCall"},
+				{"/grpc.testing.TestService/Unknown", "other"},
+				{"/other.Service/Call", "other"},
+			} {
+				if tc.method == "/grpc.testing.TestService/EmptyCall" {
+					if _, err := ss.Client.EmptyCall(ctx, &testpb.Empty{}); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					stream, err := ss.CC.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, tc.method)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := stream.CloseSend(); err != nil {
+						t.Fatal(err)
+					}
+					if err := stream.RecvMsg(&testpb.Empty{}); err != io.EOF {
+						t.Fatalf("RecvMsg = %v, want EOF", err)
+					}
+				}
+				select {
+				case got := <-received:
+					if got.method != tc.want || got.tag != removeLeadingSlash(tc.want) {
+						t.Errorf("%s labels = %+v, want %s", tc.method, got, tc.want)
+					}
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+		})
+	}
+}
+
+func (s) TestServerMethodLabelWithoutServer(t *testing.T) {
+	info := &stats.RPCTagInfo{FullMethodName: "/test.Service/Call"}
+	ctx, mi := (&serverStatsHandler{}).statsTagRPC(context.Background(), info)
+	got, _ := tag.FromContext(ctx).Value(keyServerMethod)
+	if got != "other" || mi.method != "other" {
+		t.Errorf("labels = %q, %q; want other", got, mi.method)
+	}
+	if info.FullMethodName != "/test.Service/Call" {
+		t.Errorf("statsTagRPC modified RPCTagInfo: %+v", info)
 	}
 }
