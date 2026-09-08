@@ -25,6 +25,7 @@ package interop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -289,6 +290,24 @@ func getServiceAccountJSONKey(keyFile string) []byte {
 	return jsonKey
 }
 
+// checkServiceAccountUsername compares only the account identity, so errors never
+// include the credential document or its private key.
+func checkServiceAccountUsername(jsonKey []byte, user string) error {
+	var key struct {
+		ClientEmail string `json:"client_email"`
+	}
+	if err := json.Unmarshal(jsonKey, &key); err != nil {
+		return fmt.Errorf("failed to parse service account identity")
+	}
+	if key.ClientEmail == "" {
+		return fmt.Errorf("service account key has no client_email")
+	}
+	if user != key.ClientEmail {
+		return fmt.Errorf("server user name does not match service account client_email")
+	}
+	return nil
+}
+
 // DoServiceAccountCreds performs a unary RPC with service account auth.
 func DoServiceAccountCreds(ctx context.Context, tc testgrpc.TestServiceClient, serviceAccountKeyFile, oauthScope string) {
 	pl := ClientNewPayload(testpb.PayloadType_COMPRESSABLE, largeReqSize)
@@ -306,8 +325,8 @@ func DoServiceAccountCreds(ctx context.Context, tc testgrpc.TestServiceClient, s
 	jsonKey := getServiceAccountJSONKey(serviceAccountKeyFile)
 	user := reply.GetUsername()
 	scope := reply.GetOauthScope()
-	if !strings.Contains(string(jsonKey), user) {
-		logger.Fatalf("Got user name %q which is NOT a substring of %q.", user, jsonKey)
+	if err := checkServiceAccountUsername(jsonKey, user); err != nil {
+		logger.Fatal(err)
 	}
 	if !strings.Contains(oauthScope, scope) {
 		logger.Fatalf("Got OAuth scope %q which is NOT a substring of %q.", scope, oauthScope)
@@ -329,8 +348,8 @@ func DoJWTTokenCreds(ctx context.Context, tc testgrpc.TestServiceClient, service
 	}
 	jsonKey := getServiceAccountJSONKey(serviceAccountKeyFile)
 	user := reply.GetUsername()
-	if !strings.Contains(string(jsonKey), user) {
-		logger.Fatalf("Got user name %q which is NOT a substring of %q.", user, jsonKey)
+	if err := checkServiceAccountUsername(jsonKey, user); err != nil {
+		logger.Fatal(err)
 	}
 }
 
@@ -365,8 +384,8 @@ func DoOauth2TokenCreds(ctx context.Context, tc testgrpc.TestServiceClient, serv
 	jsonKey := getServiceAccountJSONKey(serviceAccountKeyFile)
 	user := reply.GetUsername()
 	scope := reply.GetOauthScope()
-	if !strings.Contains(string(jsonKey), user) {
-		logger.Fatalf("Got user name %q which is NOT a substring of %q.", user, jsonKey)
+	if err := checkServiceAccountUsername(jsonKey, user); err != nil {
+		logger.Fatal(err)
 	}
 	if !strings.Contains(oauthScope, scope) {
 		logger.Fatalf("Got OAuth scope %q which is NOT a substring of %q.", scope, oauthScope)
@@ -393,8 +412,8 @@ func DoPerRPCCreds(ctx context.Context, tc testgrpc.TestServiceClient, serviceAc
 	}
 	user := reply.GetUsername()
 	scope := reply.GetOauthScope()
-	if !strings.Contains(string(jsonKey), user) {
-		logger.Fatalf("Got user name %q which is NOT a substring of %q.", user, jsonKey)
+	if err := checkServiceAccountUsername(jsonKey, user); err != nil {
+		logger.Fatal(err)
 	}
 	if !strings.Contains(oauthScope, scope) {
 		logger.Fatalf("Got OAuth scope %q which is NOT a substring of %q.", scope, oauthScope)
