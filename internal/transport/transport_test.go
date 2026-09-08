@@ -4488,3 +4488,54 @@ func (s) TestRecvBufferCompactionDisabled(t *testing.T) {
 		}
 	}
 }
+
+// TestAdvertisedCompressors preserves both the original metadata and the
+// compressor list while folding repeated fields in the native header parser.
+func (s) TestAdvertisedCompressors(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{name: "absent"},
+		{name: "empty", values: []string{"", ""}},
+		{name: "single", values: []string{"gzip"}, want: "gzip"},
+		{name: "repeated", values: []string{"", "gzip", "", "br, deflate", "gzip", ""}, want: "gzip,br, deflate,gzip"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			st := &http2Server{
+				activeStreams: make(map[uint32]*ServerStream),
+				maxStreams:    1,
+				controlBuf:    newControlBuffer(ctx.Done()),
+				bufferPool:    mem.DefaultBufferPool(),
+				channelz:      &channelz.Socket{},
+			}
+			frame := &http2.MetaHeadersFrame{
+				HeadersFrame: &http2.HeadersFrame{FrameHeader: http2.FrameHeader{StreamID: 1, Flags: http2.FlagHeadersEndStream}},
+				Fields:       []hpack.HeaderField{{Name: ":method", Value: "POST"}, {Name: ":path", Value: "/test/method"}, {Name: ":authority", Value: "localhost"}, {Name: "content-type", Value: "application/grpc"}},
+			}
+			for _, value := range test.values {
+				frame.Fields = append(frame.Fields, hpack.HeaderField{Name: "grpc-accept-encoding", Value: value})
+			}
+			called := false
+			if err := st.operateHeaders(ctx, frame, func(stream *ServerStream) {
+				called = true
+				defer stream.cancel()
+				if got := stream.clientAdvertisedCompressors; got != test.want {
+					t.Errorf("compressors = %q, want %q", got, test.want)
+				}
+				md, _ := metadata.FromIncomingContext(stream.Context())
+				if diff := cmp.Diff(test.values, md.Get("grpc-accept-encoding")); diff != "" {
+					t.Errorf("metadata mismatch (-want +got):\n%s", diff)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if !called {
+				t.Fatal("stream handler was not called")
+			}
+		})
+	}
+}
