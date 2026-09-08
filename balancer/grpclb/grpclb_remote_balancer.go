@@ -58,7 +58,7 @@ func serverListEqual(a, b []*lbpb.Server) bool {
 // and regenerates picker using the received serverList.
 func (lb *lbBalancer) processServerList(l *lbpb.ServerList) {
 	if lb.logger.V(2) {
-		lb.logger.Infof("Processing server list: %#v", l)
+		lb.logger.Infof("Processing server list with %d entries", len(l.Servers))
 	}
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -91,7 +91,7 @@ func (lb *lbBalancer) processServerList(l *lbpb.ServerList) {
 		}
 		addr := imetadata.Set(resolver.Address{Addr: net.JoinHostPort(ipStr, fmt.Sprintf("%d", s.Port))}, md)
 		if lb.logger.V(2) {
-			lb.logger.Infof("Server list entry:|%d|, ipStr:|%s|, port:|%d|, load balancer token:|%v|", i, ipStr, s.Port, s.LoadBalanceToken)
+			lb.logger.Infof("Server list entry:|%d|, ipStr:|%s|, port:|%d|", i, ipStr, s.Port)
 		}
 		backendAddrs = append(backendAddrs, addr)
 	}
