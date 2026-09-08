@@ -249,7 +249,19 @@ type Options struct {
 	SkipServerAuthEKU bool
 }
 
+func (v VerificationType) validate() error {
+	switch v {
+	case CertAndHostVerification, CertVerification, SkipVerification:
+		return nil
+	default:
+		return fmt.Errorf("unsupported verification type: %d", v)
+	}
+}
+
 func (o *Options) clientConfig() (*tls.Config, error) {
+	if err := o.VerificationType.validate(); err != nil {
+		return nil, err
+	}
 	if o.VerificationType == SkipVerification && o.AdditionalPeerVerification == nil {
 		return nil, fmt.Errorf("client needs to provide custom verification mechanism if choose to skip default verification")
 	}
@@ -336,6 +348,9 @@ func (o *Options) clientConfig() (*tls.Config, error) {
 }
 
 func (o *Options) serverConfig() (*tls.Config, error) {
+	if err := o.VerificationType.validate(); err != nil {
+		return nil, err
+	}
 	if o.RequireClientCert && o.VerificationType == SkipVerification && o.AdditionalPeerVerification == nil {
 		return nil, fmt.Errorf("server needs to provide custom verification mechanism if choose to skip default verification, but require client certificate(s)")
 	}
