@@ -20,6 +20,7 @@ package ringhash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -31,6 +32,7 @@ import (
 	iringhash "google.golang.org/grpc/internal/ringhash"
 	"google.golang.org/grpc/internal/testutils"
 	"google.golang.org/grpc/resolver"
+	resolverringhash "google.golang.org/grpc/resolver/ringhash"
 )
 
 const (
@@ -735,5 +737,65 @@ func (s) TestAddrBalancerAttributesChange(t *testing.T) {
 	case <-cc.NewSubConnCh:
 		t.Fatal("new subConn created for an update with the same addresses")
 	case <-time.After(defaultTestShortTimeout):
+	}
+}
+
+// Empty endpoints must not create children or ring entries, while usable
+// endpoints in the same resolver update keep their configured hash and weight.
+func (s) TestEmptyEndpoints(t *testing.T) {
+	valid := resolverringhash.SetHashKey(weight.Set(resolver.Endpoint{
+		Addresses: []resolver.Address{{Addr: "localhost:1"}},
+	}, weight.EndpointInfo{Weight: 2}), "valid-key")
+	for _, empty := range []resolver.Endpoint{
+		{},
+		{Addresses: []resolver.Address{}},
+		resolverringhash.SetHashKey(resolver.Endpoint{}, "unused-key"),
+	} {
+		t.Run(fmt.Sprintf("%v", empty), func(t *testing.T) {
+			cc := testutils.NewBalancerClientConn(t)
+			b := bb{}.Build(cc, balancer.BuildOptions{}).(*ringhashBalancer)
+			t.Cleanup(b.Close)
+			for _, endpoints := range [][]resolver.Endpoint{
+				{empty}, {empty, valid}, {empty}, {valid},
+			} {
+				err := b.UpdateClientConnState(balancer.ClientConnState{
+					ResolverState:  resolver.State{Endpoints: endpoints},
+					BalancerConfig: testConfig,
+				})
+				wantCount := 0
+				for _, ep := range endpoints {
+					if len(ep.Addresses) != 0 {
+						wantCount++
+					}
+				}
+				if wantCount == 0 {
+					if !errors.Is(err, balancer.ErrBadResolverState) {
+						t.Fatalf("empty update returned %v, want ErrBadResolverState", err)
+					}
+				} else if err != nil {
+					t.Fatalf("usable update failed: %v", err)
+				}
+				b.mu.Lock()
+				count := b.endpointStates.Len()
+				es, ok := b.endpointStates.Get(valid)
+				b.mu.Unlock()
+				if count != wantCount {
+					t.Fatalf("endpoint count = %d, want %d", count, wantCount)
+				}
+				if wantCount != 0 && (!ok || es.hashKey != "valid-key" || es.weight != 2) {
+					t.Fatalf("usable endpoint lost configured hash or weight: %+v", es)
+				}
+				select {
+				case p := <-cc.NewPickerCh:
+					if wantCount == 0 {
+						if _, err := p.Pick(balancer.PickInfo{}); err == nil {
+							t.Fatal("empty update produced a usable picker")
+						}
+					}
+				case <-time.After(defaultTestTimeout):
+					t.Fatal("timed out waiting for picker")
+				}
+			}
+		})
 	}
 }
