@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -418,6 +419,8 @@ func (t *http2Server) operateHeaders(ctx context.Context, frame *http2.MetaHeade
 		protocolError bool
 		headerError   *status.Status
 
+		advertisedCompressors strings.Builder
+
 		timeoutSet bool
 		timeout    time.Duration
 	)
@@ -439,11 +442,10 @@ func (t *http2Server) operateHeaders(ctx context.Context, frame *http2.MetaHeade
 			if hf.Value == "" {
 				continue
 			}
-			compressors := hf.Value
-			if s.clientAdvertisedCompressors != "" {
-				compressors = s.clientAdvertisedCompressors + "," + compressors
+			if advertisedCompressors.Len() > 0 {
+				advertisedCompressors.WriteByte(',')
 			}
-			s.clientAdvertisedCompressors = compressors
+			advertisedCompressors.WriteString(hf.Value)
 		case "grpc-encoding":
 			s.recvCompress = hf.Value
 		case ":method":
@@ -476,6 +478,8 @@ func (t *http2Server) operateHeaders(ctx context.Context, frame *http2.MetaHeade
 			mdata[hf.Name] = append(mdata[hf.Name], v)
 		}
 	}
+
+	s.clientAdvertisedCompressors = advertisedCompressors.String()
 
 	// "If multiple Host headers or multiple :authority headers are present, the
 	// request must be rejected with an HTTP status code 400 as required by Host
