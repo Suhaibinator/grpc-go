@@ -148,8 +148,7 @@ func NewHeaderPresentMatcher(key string, present bool, invert bool) *HeaderPrese
 // Match returns whether the passed in HTTP Headers match according to the
 // HeaderPresentMatcher.
 func (hpm *HeaderPresentMatcher) Match(md metadata.MD) bool {
-	vs, ok := valueFromMD(md, hpm.key)
-	present := ok && len(vs) > 0 // TODO: Are we sure we need this len(vs) > 0?
+	_, present := md[hpm.key]
 	return present == hpm.present
 }
 

@@ -547,3 +547,30 @@ func TestHeaderStringMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestHeaderPresenceIndependentOfValue(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		md      metadata.MD
+		present bool
+	}{
+		{name: "nil metadata"},
+		{name: "absent", md: metadata.MD{"other": {"value"}}},
+		{name: "nil slice", md: metadata.MD{"header": nil}, present: true},
+		{name: "empty slice", md: metadata.MD{"header": {}}, present: true},
+		{name: "empty value", md: metadata.Pairs("header", ""), present: true},
+		{name: "repeated empty values", md: metadata.Pairs("header", "", "header", ""), present: true},
+		{name: "nonempty value", md: metadata.Pairs("header", "value"), present: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, present := range []bool{false, true} {
+				for _, invert := range []bool{false, true} {
+					want := (test.present == present) != invert
+					if got := NewHeaderPresentMatcher("header", present, invert).Match(test.md); got != want {
+						t.Errorf("Match(present=%t, invert=%t) = %t, want %t", present, invert, got, want)
+					}
+				}
+			}
+		})
+	}
+}
