@@ -1311,3 +1311,32 @@ func (s) TestServerAuthEKUValidation(t *testing.T) {
 		})
 	}
 }
+
+func (s) TestUnsupportedVerificationType(t *testing.T) {
+	for _, mode := range []VerificationType{-1, SkipVerification + 1} {
+		for _, custom := range []bool{false, true} {
+			for _, requireClientCert := range []bool{false, true} {
+				t.Run(fmt.Sprintf("mode=%d/custom=%t/requireClientCert=%t", mode, custom, requireClientCert), func(t *testing.T) {
+					opts := &Options{
+						VerificationType:  mode,
+						RequireClientCert: requireClientCert,
+						IdentityOptions:   IdentityCertificateOptions{IdentityProvider: fakeProvider{pt: provTypeIdentity}},
+					}
+					if custom {
+						opts.AdditionalPeerVerification = func(*HandshakeVerificationInfo) (*PostHandshakeVerificationResults, error) {
+							return &PostHandshakeVerificationResults{}, nil
+						}
+					}
+					for _, constructor := range []struct {
+						name     string
+						newCreds func(*Options) (credentials.TransportCredentials, error)
+					}{{"client", NewClientCreds}, {"server", NewServerCreds}} {
+						if _, err := constructor.newCreds(opts); err == nil || !strings.Contains(err.Error(), "unsupported verification type") {
+							t.Errorf("%s constructor error = %v, want unsupported verification type", constructor.name, err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
