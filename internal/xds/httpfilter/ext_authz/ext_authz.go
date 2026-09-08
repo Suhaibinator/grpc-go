@@ -93,7 +93,7 @@ func grpcStatusCode(httpStatus int32) codes.Code {
 func (builder) ParseFilterConfig(cfg proto.Message, _ httpfilter.ParseOptions) (httpfilter.FilterConfig, error) {
 	m, ok := cfg.(*anypb.Any)
 	if !ok {
-		return nil, fmt.Errorf("extauthz: error parsing config %v: unknown type %T, want *anypb.Any", cfg, cfg)
+		return nil, fmt.Errorf("extauthz: error parsing config: unknown type %T, want *anypb.Any", cfg)
 	}
 	msg := new(v3extauthzpb.ExtAuthz)
 	if err := m.UnmarshalTo(msg); err != nil {
@@ -101,7 +101,7 @@ func (builder) ParseFilterConfig(cfg proto.Message, _ httpfilter.ParseOptions) (
 	}
 
 	if msg.GetGrpcService() == nil {
-		return nil, fmt.Errorf("extauthz: empty grpc_service provided in config %v", cfg)
+		return nil, fmt.Errorf("extauthz: empty grpc_service provided in config of type %T", cfg)
 	}
 	server, err := parseGRPCServiceConfig(msg.GetGrpcService())
 	if err != nil {
@@ -170,11 +170,11 @@ func (builder) ParseFilterConfig(cfg proto.Message, _ httpfilter.ParseOptions) (
 func (builder) ParseFilterConfigOverride(overrideCfg proto.Message, _ httpfilter.ParseOptions) (httpfilter.FilterConfig, error) {
 	m, ok := overrideCfg.(*anypb.Any)
 	if !ok {
-		return nil, fmt.Errorf("extauthz: error parsing override config %v: unknown type %T, want *anypb.Any", overrideCfg, overrideCfg)
+		return nil, fmt.Errorf("extauthz: error parsing override config: unknown type %T, want *anypb.Any", overrideCfg)
 	}
 	msg := new(v3extauthzpb.ExtAuthzPerRoute)
 	if err := m.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("extauthz: failed to unmarshal override config %v: %v", overrideCfg, err)
+		return nil, fmt.Errorf("extauthz: failed to unmarshal override config: %v", err)
 	}
 	return nil, nil
 }

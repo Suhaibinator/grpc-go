@@ -494,9 +494,8 @@ func (s *adsStreamImpl) recvMessage(stream clients.Stream) (resources []*anypb.A
 		s.logger.Infof("Failed to unmarshal response to DiscoveryResponse: %v", err)
 		return nil, "", "", "", fmt.Errorf("unexpected message type %T", r)
 	}
-	if s.logger.V(perRPCVerbosityLevel) {
-		s.logger.Infof("ADS response received: %v", pretty.ToJSON(&resp))
-	} else if s.logger.V(2) {
+	// Resource payloads can contain credentials, even when parsing fails.
+	if s.logger.V(2) {
 		s.logger.Infof("ADS response received for type %q, version %q, nonce %q", resp.GetTypeUrl(), resp.GetVersionInfo(), resp.GetNonce())
 	}
 	return resp.GetResources(), resp.GetTypeUrl(), resp.GetVersionInfo(), resp.GetNonce(), nil

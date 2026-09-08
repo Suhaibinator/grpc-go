@@ -115,14 +115,14 @@ func validateBodyProcessingMode(mode *v3procfilterpb.ProcessingMode) error {
 func (builder) ParseFilterConfig(cfg proto.Message, opts httpfilter.ParseOptions) (httpfilter.FilterConfig, error) {
 	m, ok := cfg.(*anypb.Any)
 	if !ok {
-		return nil, fmt.Errorf("extproc: error parsing config %v: unknown type %T, want *anypb.Any", cfg, cfg)
+		return nil, fmt.Errorf("extproc: error parsing config: unknown type %T, want *anypb.Any", cfg)
 	}
 	msg := new(v3procfilterpb.ExternalProcessor)
 	if err := m.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("extproc: failed to unmarshal config %v: %v", cfg, err)
+		return nil, fmt.Errorf("extproc: failed to unmarshal config: %v", err)
 	}
 	if msg.GetProcessingMode() == nil {
-		return nil, fmt.Errorf("extproc: missing processing_mode in config %v", cfg)
+		return nil, fmt.Errorf("extproc: missing processing_mode in config of type %T", cfg)
 	}
 	if err := validateBodyProcessingMode(msg.GetProcessingMode()); err != nil {
 		return nil, err
@@ -156,7 +156,7 @@ func (builder) ParseFilterConfig(cfg proto.Message, opts httpfilter.ParseOptions
 	// Parse the GrpcService last, so that no error path can drop the built
 	// credentials: the caller owns them from here on.
 	if msg.GetGrpcService() == nil {
-		return nil, fmt.Errorf("extproc: empty grpc_service provided in config %v", cfg)
+		return nil, fmt.Errorf("extproc: empty grpc_service provided in config of type %T", cfg)
 	}
 	server, err := grpcservice.Parse(msg.GetGrpcService(), opts.BootstrapConfig, opts.ServerConfig)
 	if err != nil {
@@ -184,11 +184,11 @@ func (builder) ParseFilterConfig(cfg proto.Message, opts httpfilter.ParseOptions
 func (builder) ParseFilterConfigOverride(ov proto.Message, opts httpfilter.ParseOptions) (httpfilter.FilterConfig, error) {
 	m, ok := ov.(*anypb.Any)
 	if !ok {
-		return nil, fmt.Errorf("extproc: error parsing override %v: unknown type %T, want *anypb.Any", ov, ov)
+		return nil, fmt.Errorf("extproc: error parsing override: unknown type %T, want *anypb.Any", ov)
 	}
 	msg := new(v3procfilterpb.ExtProcPerRoute)
 	if err := m.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("extproc: failed to unmarshal override %v: %v", ov, err)
+		return nil, fmt.Errorf("extproc: failed to unmarshal override: %v", err)
 	}
 	override := msg.GetOverrides()
 

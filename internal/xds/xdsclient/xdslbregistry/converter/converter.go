@@ -128,7 +128,7 @@ func convertWRRLocalityProtoToServiceConfig(rawProto []byte, depth int) (json.Ra
 	}
 	epJSON, err := xdslbregistry.ConvertToServiceConfig(wrrlProto.GetEndpointPickingPolicy(), depth+1)
 	if err != nil {
-		return nil, fmt.Errorf("error converting endpoint picking policy: %v for %+v", err, wrrlProto)
+		return nil, fmt.Errorf("error converting endpoint picking policy: %v for %T", err, wrrlProto)
 	}
 	wrrLCfg := wrrLocalityLBConfig{
 		ChildPolicy: epJSON,
@@ -230,7 +230,7 @@ func convertCustomPolicy(typeURL string, s *structpb.Struct) (json.RawMessage, e
 
 	rawJSON, err := json.Marshal(s)
 	if err != nil {
-		return nil, fmt.Errorf("error converting custom lb policy %v: %v for %+v", err, typeURL, s)
+		return nil, fmt.Errorf("error converting custom lb policy %v: %v for %T", err, typeURL, s)
 	}
 
 	// The Struct contained in the TypedStruct will be returned as-is as the

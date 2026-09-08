@@ -523,7 +523,7 @@ func (m *DependencyManager) onListenerResourceUpdate(update *xdsresource.Listene
 	}
 
 	if m.logger.V(2) {
-		m.logger.Infof("Received update for Listener resource %q: %+v", m.ldsResourceName, update)
+		m.logger.Infof("Received update for Listener resource %q", m.ldsResourceName)
 	}
 
 	m.listenerWatcher.setLastUpdate(update)
@@ -622,7 +622,7 @@ func (m *DependencyManager) onRouteConfigResourceUpdate(resourceName string, upd
 	}
 
 	if m.logger.V(2) {
-		m.logger.Infof("Received update for RouteConfiguration resource %q: %+v", resourceName, update)
+		m.logger.Infof("Received update for RouteConfiguration resource %q", resourceName)
 	}
 	m.applyRouteConfigUpdateLocked(update)
 }
@@ -684,7 +684,7 @@ func (m *DependencyManager) onClusterResourceUpdate(resourceName string, update 
 	}
 
 	if m.logger.V(2) {
-		m.logger.Infof("Received update for Cluster resource %q: %+v", resourceName, update)
+		m.logger.Infof("Received update for Cluster resource %q", resourceName)
 	}
 	m.clusterWatchers[resourceName].setLastUpdate(update)
 	m.maybeSendUpdateLocked()
@@ -747,7 +747,7 @@ func (m *DependencyManager) onEndpointUpdate(resourceName string, update *xdsres
 	}
 
 	if m.logger.V(2) {
-		m.logger.Infof("Received update for Endpoint resource %q: %+v", resourceName, update)
+		m.logger.Infof("Received update for Endpoint resource %q", resourceName)
 	}
 	m.endpointWatchers[resourceName].setLastUpdate(update)
 	m.maybeSendUpdateLocked()

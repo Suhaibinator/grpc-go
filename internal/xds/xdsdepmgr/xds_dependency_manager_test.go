@@ -1162,7 +1162,7 @@ func (s) TestAggregateClusterChildError(t *testing.T) {
 					},
 					EndpointConfig: &xdsresource.EndpointConfig{
 						EDSUpdate:      &xdsresource.EndpointsUpdate{},
-						ResolutionNote: fmt.Errorf("[xDS node id: %v]: %v", nodeID, fmt.Errorf("EDS response contains an endpoint with zero weight: endpoint:{address:{socket_address:{address:%q  port_value:%v}}}  load_balancing_weight:{}", "localhost", 8080)),
+						ResolutionNote: fmt.Errorf("[xDS node id: %v]: EDS response contains an endpoint with zero weight (type %T)", nodeID, &v3endpointpb.LbEndpoint{}),
 					},
 				},
 			},

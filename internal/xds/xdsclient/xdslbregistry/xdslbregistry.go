@@ -59,7 +59,7 @@ func ConvertToServiceConfig(lbPolicy *v3clusterpb.LoadBalancingPolicy, depth int
 	// "Configurations that require more than 16 levels of recursion are
 	// considered invalid and should result in a NACK response." - A51
 	if depth > 15 {
-		return nil, fmt.Errorf("lb policy %v exceeds max depth supported: 16 layers", lbPolicy)
+		return nil, fmt.Errorf("lb policy %T exceeds max depth supported: 16 layers", lbPolicy)
 	}
 
 	// "This function iterate over the list of policy messages in
@@ -78,5 +78,5 @@ func ConvertToServiceConfig(lbPolicy *v3clusterpb.LoadBalancingPolicy, depth int
 		}
 		return json, err
 	}
-	return nil, fmt.Errorf("no supported policy found in policy list +%v", lbPolicy)
+	return nil, fmt.Errorf("no supported policy found in policy list (count %d)", len(lbPolicy.GetPolicies()))
 }
