@@ -178,7 +178,7 @@ func (w *watcher) updateIdentityDistributor() {
 
 	cert, err := tls.X509KeyPair(certFileContents, keyFileContents)
 	if err != nil {
-		logger.Warningf("tls.X509KeyPair(%q, %q) failed: %v", certFileContents, keyFileContents, err)
+		logger.Warningf("tls.X509KeyPair failed for certificate file %q and key file %q: %v", w.opts.CertFile, w.opts.KeyFile, err)
 		return
 	}
 	w.certFileContents = certFileContents
