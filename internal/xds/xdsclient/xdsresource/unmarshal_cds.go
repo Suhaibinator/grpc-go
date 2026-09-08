@@ -126,7 +126,7 @@ func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serv
 	case v3clusterpb.Cluster_RING_HASH:
 		rhc := cluster.GetRingHashLbConfig()
 		if rhc.GetHashFunction() != v3clusterpb.Cluster_RingHashLbConfig_XX_HASH {
-			return ClusterUpdate{}, fmt.Errorf("unsupported ring_hash hash function %v in response: %+v", rhc.GetHashFunction(), cluster)
+			return ClusterUpdate{}, fmt.Errorf("unsupported ring_hash hash function %v in cluster %q", rhc.GetHashFunction(), cluster.GetName())
 		}
 		// Minimum defaults to 1024 entries, and limited to 8M entries Maximum
 		// defaults to 8M entries, and limited to 8M entries
@@ -157,7 +157,7 @@ func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serv
 		lrLBCfg := []byte(fmt.Sprintf("{\"choiceCount\": %d}", choiceCount))
 		lbPolicy = []byte(fmt.Sprintf(`[{"least_request_experimental": %s}]`, lrLBCfg))
 	default:
-		return ClusterUpdate{}, fmt.Errorf("unexpected lbPolicy %v in response: %+v", cluster.GetLbPolicy(), cluster)
+		return ClusterUpdate{}, fmt.Errorf("unexpected lbPolicy %v in cluster %q", cluster.GetLbPolicy(), cluster.GetName())
 	}
 	// Process security configuration received from the control plane iff the
 	// corresponding environment variable is set.
@@ -177,7 +177,7 @@ func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serv
 	if cluster.GetLoadBalancingPolicy() != nil {
 		lbPolicy, err = xdslbregistry.ConvertToServiceConfig(cluster.GetLoadBalancingPolicy(), 0)
 		if err != nil {
-			return ClusterUpdate{}, fmt.Errorf("error converting LoadBalancingPolicy %v in response: %+v: %v", cluster.GetLoadBalancingPolicy(), cluster, err)
+			return ClusterUpdate{}, fmt.Errorf("error converting LoadBalancingPolicy %T in cluster %q: %v", cluster.GetLoadBalancingPolicy(), cluster.GetName(), err)
 		}
 		// "It will be the responsibility of the XdsClient to validate the
 		// converted configuration. It will do this by having the gRPC LB policy
@@ -248,12 +248,12 @@ func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serv
 	switch {
 	case cluster.GetType() == v3clusterpb.Cluster_EDS:
 		if configsource := cluster.GetEdsClusterConfig().GetEdsConfig(); configsource.GetAds() == nil && configsource.GetSelf() == nil {
-			return ClusterUpdate{}, fmt.Errorf("CDS's EDS config source is not ADS or Self: %+v", cluster)
+			return ClusterUpdate{}, fmt.Errorf("CDS's EDS config source is not ADS or Self: %q", cluster.GetName())
 		}
 		ret.ClusterType = ClusterTypeEDS
 		ret.EDSServiceName = cluster.GetEdsClusterConfig().GetServiceName()
 		if strings.HasPrefix(ret.ClusterName, "xdstp:") && ret.EDSServiceName == "" {
-			return ClusterUpdate{}, fmt.Errorf("CDS's EDS service name is not set with a new-style cluster name: %+v", cluster)
+			return ClusterUpdate{}, fmt.Errorf("CDS's EDS service name is not set with a new-style cluster name: %q", cluster.GetName())
 		}
 		return ret, nil
 	case cluster.GetType() == v3clusterpb.Cluster_LOGICAL_DNS:
@@ -270,13 +270,13 @@ func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serv
 			return ClusterUpdate{}, fmt.Errorf("failed to unmarshal resource: %v", err)
 		}
 		if len(clusters.Clusters) == 0 {
-			return ClusterUpdate{}, fmt.Errorf("xds: aggregate cluster has empty clusters field in response: %+v", cluster)
+			return ClusterUpdate{}, fmt.Errorf("xds: aggregate cluster has empty clusters field in cluster %q", cluster.GetName())
 		}
 		ret.ClusterType = ClusterTypeAggregate
 		ret.PrioritizedClusterNames = clusters.Clusters
 		return ret, nil
 	default:
-		return ClusterUpdate{}, fmt.Errorf("unsupported cluster type (%v, %v) in response: %+v", cluster.GetType(), cluster.GetClusterType(), cluster)
+		return ClusterUpdate{}, fmt.Errorf("unsupported cluster type (%v, %v) in cluster %q", cluster.GetType(), cluster.GetClusterType().GetName(), cluster.GetName())
 	}
 }
 
@@ -291,11 +291,11 @@ func dnsHostNameFromCluster(cluster *v3clusterpb.Cluster) (string, error) {
 		return "", fmt.Errorf("load_assignment not present for LOGICAL_DNS cluster")
 	}
 	if len(loadAssignment.GetEndpoints()) != 1 {
-		return "", fmt.Errorf("load_assignment for LOGICAL_DNS cluster must have exactly one locality, got: %+v", loadAssignment)
+		return "", fmt.Errorf("load_assignment for LOGICAL_DNS cluster must have exactly one locality, got count: %d", len(loadAssignment.GetEndpoints()))
 	}
 	endpoints := loadAssignment.GetEndpoints()[0].GetLbEndpoints()
 	if len(endpoints) != 1 {
-		return "", fmt.Errorf("locality for LOGICAL_DNS cluster must have exactly one endpoint, got: %+v", endpoints)
+		return "", fmt.Errorf("locality for LOGICAL_DNS cluster must have exactly one endpoint, got count: %d", len(endpoints))
 	}
 	endpoint := endpoints[0].GetEndpoint()
 	if endpoint == nil {
@@ -323,7 +323,7 @@ func dnsHostNameFromCluster(cluster *v3clusterpb.Cluster) (string, error) {
 // the received Cluster resource.
 func securityConfigFromCluster(cluster *v3clusterpb.Cluster) (*SecurityConfig, bool, error) {
 	if tsm := cluster.GetTransportSocketMatches(); len(tsm) != 0 {
-		return nil, false, fmt.Errorf("unsupported transport_socket_matches field is non-empty: %+v", tsm)
+		return nil, false, fmt.Errorf("unsupported transport_socket_matches field is non-empty (count %d)", len(tsm))
 	}
 	// The Cluster resource contains a `transport_socket` field, which contains
 	// a oneof `typed_config` field of type `protobuf.Any`. The any proto
@@ -388,10 +388,10 @@ func securityConfigFromCluster(cluster *v3clusterpb.Cluster) (*SecurityConfig, b
 // The `alpn_protocols` field is ignored.
 func securityConfigFromCommonTLSContext(common *v3tlspb.CommonTlsContext, server bool) (*SecurityConfig, error) {
 	if common.GetTlsParams() != nil {
-		return nil, fmt.Errorf("unsupported tls_params field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported tls_params field in CommonTlsContext message: %T", common)
 	}
 	if common.GetCustomHandshaker() != nil {
-		return nil, fmt.Errorf("unsupported custom_handshaker field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported custom_handshaker field in CommonTlsContext message: %T", common)
 	}
 
 	// For now, if we can't get a valid security config from the new fields, we
@@ -456,7 +456,7 @@ func securityConfigFromCommonTLSContextWithDeprecatedFields(common *v3tlspb.Comm
 			}
 		}
 		if server && len(matchers) != 0 {
-			return nil, fmt.Errorf("match_subject_alt_names field in validation context is not supported on the server: %v", common)
+			return nil, fmt.Errorf("match_subject_alt_names field in validation context is not supported on the server: %T", common)
 		}
 		sc.SubjectAltNameMatchers = matchers
 		if pi := combined.GetValidationContextCertificateProviderInstance(); pi != nil {
@@ -491,10 +491,10 @@ func securityConfigFromCommonTLSContextUsingNewFields(common *v3tlspb.CommonTlsC
 	sc := &SecurityConfig{}
 	identity := common.GetTlsCertificateProviderInstance()
 	if identity == nil && len(common.GetTlsCertificates()) != 0 {
-		return nil, fmt.Errorf("expected field tls_certificate_provider_instance is not set, while unsupported field tls_certificates is set in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("expected field tls_certificate_provider_instance is not set, while unsupported field tls_certificates is set in CommonTlsContext message: %T", common)
 	}
 	if identity == nil && common.GetTlsCertificateSdsSecretConfigs() != nil {
-		return nil, fmt.Errorf("expected field tls_certificate_provider_instance is not set, while unsupported field tls_certificate_sds_secret_configs is set in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("expected field tls_certificate_provider_instance is not set, while unsupported field tls_certificate_sds_secret_configs is set in CommonTlsContext message: %T", common)
 	}
 	sc.IdentityInstanceName = identity.GetInstanceName()
 	sc.IdentityCertName = identity.GetCertificateName()
@@ -555,7 +555,7 @@ func securityConfigFromCommonTLSContextUsingNewFields(common *v3tlspb.CommonTlsC
 				// unset and `system_root_certs` is set, the LDS resource will
 				// be NACKed.
 				// - A82
-				return nil, fmt.Errorf("expected field ca_certificate_provider_instance is missing and unexpected field system_root_certs is set for server in CommonTlsContext message: %+v", common)
+				return nil, fmt.Errorf("expected field ca_certificate_provider_instance is missing and unexpected field system_root_certs is set for server in CommonTlsContext message: %T", common)
 			}
 		} else {
 			if validationCtx.GetSystemRootCerts() != nil {
@@ -571,15 +571,15 @@ func securityConfigFromCommonTLSContextUsingNewFields(common *v3tlspb.CommonTlsC
 	// - trust_chain_verification
 	switch {
 	case len(validationCtx.GetVerifyCertificateSpki()) != 0:
-		return nil, fmt.Errorf("unsupported verify_certificate_spki field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported verify_certificate_spki field in CommonTlsContext message: %T", common)
 	case len(validationCtx.GetVerifyCertificateHash()) != 0:
-		return nil, fmt.Errorf("unsupported verify_certificate_hash field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported verify_certificate_hash field in CommonTlsContext message: %T", common)
 	case validationCtx.GetRequireSignedCertificateTimestamp().GetValue():
-		return nil, fmt.Errorf("unsupported require_signed_certificate_timestamp field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported require_signed_certificate_timestamp field in CommonTlsContext message: %T", common)
 	case validationCtx.GetCrl() != nil:
-		return nil, fmt.Errorf("unsupported crl field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported crl field in CommonTlsContext message: %T", common)
 	case validationCtx.GetCustomValidatorConfig() != nil:
-		return nil, fmt.Errorf("unsupported custom_validator_config field in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("unsupported custom_validator_config field in CommonTlsContext message: %T", common)
 	}
 
 	if rootProvider := validationCtx.GetCaCertificateProviderInstance(); rootProvider != nil {
@@ -588,10 +588,10 @@ func securityConfigFromCommonTLSContextUsingNewFields(common *v3tlspb.CommonTlsC
 	} else if useSystemRootCerts {
 		sc.UseSystemRootCerts = true
 	} else if !server && envconfig.XDSSystemRootCertsEnabled {
-		return nil, fmt.Errorf("expected fields ca_certificate_provider_instance and system_root_certs are missing in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("expected fields ca_certificate_provider_instance and system_root_certs are missing in CommonTlsContext message: %T", common)
 	} else {
 		// Don't mention the system_root_certs field if it was not checked.
-		return nil, fmt.Errorf("expected field ca_certificate_provider_instance is missing in CommonTlsContext message: %+v", common)
+		return nil, fmt.Errorf("expected field ca_certificate_provider_instance is missing in CommonTlsContext message: %T", common)
 	}
 
 	var matchers []matcher.StringMatcher
@@ -603,7 +603,7 @@ func securityConfigFromCommonTLSContextUsingNewFields(common *v3tlspb.CommonTlsC
 		matchers = append(matchers, matcher)
 	}
 	if server && len(matchers) != 0 {
-		return nil, fmt.Errorf("match_subject_alt_names field in validation context is not supported on the server: %v", common)
+		return nil, fmt.Errorf("match_subject_alt_names field in validation context is not supported on the server: %T", common)
 	}
 	sc.SubjectAltNameMatchers = matchers
 	return sc, nil

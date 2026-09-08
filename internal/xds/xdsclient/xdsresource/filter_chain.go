@@ -88,10 +88,10 @@ func processNetworkFilters(filters []*v3listenerpb.Filter, bc *bootstrap.Config,
 	for _, filter := range filters {
 		name := filter.GetName()
 		if name == "" {
-			return nil, fmt.Errorf("network filters {%+v} is missing name field in filter: {%+v}", filters, filter)
+			return nil, fmt.Errorf("network filters (count %d) is missing name field in filter of type %T", len(filters), filter)
 		}
 		if seenNames[name] {
-			return nil, fmt.Errorf("network filters {%+v} has duplicate filter name %q", filters, name)
+			return nil, fmt.Errorf("network filters (count %d) has duplicate filter name %q", len(filters), name)
 		}
 		seenNames[name] = true
 
@@ -112,18 +112,18 @@ func processNetworkFilters(filters []*v3listenerpb.Filter, bc *bootstrap.Config,
 			// we have for HTTP filters), when we have to support network
 			// filters other than HttpConnectionManager.
 			if tc.GetTypeUrl() != version.V3HTTPConnManagerURL {
-				return nil, fmt.Errorf("network filters {%+v} has unsupported network filter %q in filter {%+v}", filters, tc.GetTypeUrl(), filter)
+				return nil, fmt.Errorf("network filters (count %d) has unsupported network filter %q in filter %q", len(filters), tc.GetTypeUrl(), filter.GetName())
 			}
 			hcm := &v3httppb.HttpConnectionManager{}
 			if err := tc.UnmarshalTo(hcm); err != nil {
-				return nil, fmt.Errorf("network filters {%+v} failed unmarshalling of network filter {%+v}: %v", filters, filter, err)
+				return nil, fmt.Errorf("network filters (count %d) failed unmarshalling of network filter %q: %v", len(filters), filter.GetName(), err)
 			}
 			// "Any filters after HttpConnectionManager should be ignored during
 			// connection processing but still be considered for validity.
 			// HTTPConnectionManager must have valid http_filters." - A36
 			filters, err := processHTTPFilters(hcm.GetHttpFilters(), true, bc, sc)
 			if err != nil {
-				return nil, fmt.Errorf("network filters {%+v} had invalid server side HTTP Filters {%+v}: %v", filters, hcm.GetHttpFilters(), err)
+				return nil, fmt.Errorf("network filters (count %d) had invalid server side HTTP Filters (count %d): %v", len(filters), len(hcm.GetHttpFilters()), err)
 			}
 			if !seenHCM {
 				// Validate for RBAC in only the HCM that will be used, since this isn't a logical validation failure,
@@ -132,10 +132,10 @@ func processNetworkFilters(filters []*v3listenerpb.Filter, bc *bootstrap.Config,
 				// HttpConnectionManager.original_ip_detection_extensions must be empty. If
 				// either field has an incorrect value, the Listener must be NACKed." - A41
 				if hcm.XffNumTrustedHops != 0 {
-					return nil, fmt.Errorf("xff_num_trusted_hops must be unset or zero %+v", hcm)
+					return nil, fmt.Errorf("xff_num_trusted_hops must be unset or zero %T", hcm)
 				}
 				if len(hcm.OriginalIpDetectionExtensions) != 0 {
-					return nil, fmt.Errorf("original_ip_detection_extensions must be empty %+v", hcm)
+					return nil, fmt.Errorf("original_ip_detection_extensions must be empty %T", hcm)
 				}
 
 				// TODO: Implement terminal filter logic, as per A36.
@@ -144,11 +144,11 @@ func processNetworkFilters(filters []*v3listenerpb.Filter, bc *bootstrap.Config,
 				switch hcm.RouteSpecifier.(type) {
 				case *v3httppb.HttpConnectionManager_Rds:
 					if hcm.GetRds().GetConfigSource().GetAds() == nil {
-						return nil, fmt.Errorf("ConfigSource is not ADS: %+v", hcm)
+						return nil, fmt.Errorf("ConfigSource is not ADS: %T", hcm)
 					}
 					name := hcm.GetRds().GetRouteConfigName()
 					if name == "" {
-						return nil, fmt.Errorf("empty route_config_name: %+v", hcm)
+						return nil, fmt.Errorf("empty route_config_name: %T", hcm)
 					}
 					hcmConfig.RouteConfigName = name
 				case *v3httppb.HttpConnectionManager_RouteConfig:
@@ -164,17 +164,17 @@ func processNetworkFilters(filters []*v3listenerpb.Filter, bc *bootstrap.Config,
 					}
 					hcmConfig.InlineRouteConfig = &routeU
 				case nil:
-					return nil, fmt.Errorf("no RouteSpecifier: %+v", hcm)
+					return nil, fmt.Errorf("no RouteSpecifier: %T", hcm)
 				default:
 					return nil, fmt.Errorf("unsupported type %T for RouteSpecifier", hcm.RouteSpecifier)
 				}
 			}
 		default:
-			return nil, fmt.Errorf("network filters {%+v} has unsupported config_type %T in filter %s", filters, typ, filter.GetName())
+			return nil, fmt.Errorf("network filters (count %d) has unsupported config_type %T in filter %s", len(filters), typ, filter.GetName())
 		}
 	}
 	if !seenHCM {
-		return nil, fmt.Errorf("network filters {%+v} missing HttpConnectionManager filter", filters)
+		return nil, fmt.Errorf("network filters (count %d) missing HttpConnectionManager filter", len(filters))
 	}
 	return hcmConfig, nil
 }

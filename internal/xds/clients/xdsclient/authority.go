@@ -700,7 +700,7 @@ func (a *authority) watchResource(rType ResourceType, resourceName string, watch
 		// immediately.
 		if state.cache != nil {
 			if a.logger.V(2) {
-				a.logger.Infof("Resource type %q with resource name %q found in cache: %v", rType.TypeName, resourceName, state.cache)
+				a.logger.Infof("Resource type %q with resource name %q found in cache", rType.TypeName, resourceName)
 			}
 			// state can only be accessed in the context of an
 			// xdsClientSerializer callback. Hence making a copy of the cached

@@ -257,7 +257,7 @@ func (xc *xdsChannel) decodeResponse(rType *ResourceType, resp response) (map[st
 			defer func() {
 				if envconfig.XDSRecoverPanicInResourceParsing {
 					if p := recover(); p != nil {
-						err = fmt.Errorf("recovered from panic during resource parsing, resource: %v, panic: %v", r, p)
+						err = fmt.Errorf("recovered from panic during resource parsing, panic type: %T", p)
 					}
 				}
 			}()
@@ -268,7 +268,7 @@ func (xc *xdsChannel) decodeResponse(rType *ResourceType, resp response) (map[st
 		// deserialization fails.
 		name := ""
 		if result == nil && err == nil {
-			xc.logger.Errorf("Decode() returned nil result and nil error for resource: %v", r)
+			xc.logger.Errorf("Decode() returned nil result and nil error for resource type: %q", r.GetTypeUrl())
 			continue
 		}
 		if result != nil {

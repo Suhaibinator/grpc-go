@@ -87,21 +87,21 @@ func processClientSideListener(lis *v3listenerpb.Listener, bc *bootstrap.Config,
 	// HttpConnectionManager.original_ip_detection_extensions must be empty. If
 	// either field has an incorrect value, the Listener must be NACKed." - A41
 	if apiLis.XffNumTrustedHops != 0 {
-		return nil, fmt.Errorf("xff_num_trusted_hops must be unset or zero %+v", apiLis)
+		return nil, fmt.Errorf("xff_num_trusted_hops must be unset or zero %T", apiLis)
 	}
 	if len(apiLis.OriginalIpDetectionExtensions) != 0 {
-		return nil, fmt.Errorf("original_ip_detection_extensions must be empty %+v", apiLis)
+		return nil, fmt.Errorf("original_ip_detection_extensions must be empty %T", apiLis)
 	}
 
 	hcm := &HTTPConnectionManagerConfig{}
 	switch apiLis.RouteSpecifier.(type) {
 	case *v3httppb.HttpConnectionManager_Rds:
 		if configsource := apiLis.GetRds().GetConfigSource(); configsource.GetAds() == nil && configsource.GetSelf() == nil {
-			return nil, fmt.Errorf("LDS's RDS configSource is not ADS or Self: %+v", lis)
+			return nil, fmt.Errorf("LDS's RDS configSource is not ADS or Self: %T", lis)
 		}
 		name := apiLis.GetRds().GetRouteConfigName()
 		if name == "" {
-			return nil, fmt.Errorf("empty route_config_name: %+v", lis)
+			return nil, fmt.Errorf("empty route_config_name: %T", lis)
 		}
 		hcm.RouteConfigName = name
 	case *v3httppb.HttpConnectionManager_RouteConfig:
@@ -111,7 +111,7 @@ func processClientSideListener(lis *v3listenerpb.Listener, bc *bootstrap.Config,
 		}
 		hcm.InlineRouteConfig = &routeU
 	case nil:
-		return nil, fmt.Errorf("no RouteSpecifier: %+v", apiLis)
+		return nil, fmt.Errorf("no RouteSpecifier: %T", apiLis)
 	default:
 		return nil, fmt.Errorf("unsupported type %T for RouteSpecifier", apiLis.RouteSpecifier)
 	}
@@ -278,11 +278,11 @@ func processServerSideListener(lis *v3listenerpb.Listener, bc *bootstrap.Config,
 	}
 	addr := lis.GetAddress()
 	if addr == nil {
-		return nil, fmt.Errorf("no address field in LDS response: %+v", lis)
+		return nil, fmt.Errorf("no address field in LDS response: %T", lis)
 	}
 	sockAddr := addr.GetSocketAddress()
 	if sockAddr == nil {
-		return nil, fmt.Errorf("no socket_address field in LDS response: %+v", lis)
+		return nil, fmt.Errorf("no socket_address field in LDS response: %T", lis)
 	}
 	lu := &ListenerUpdate{
 		TCPListener: &InboundListenerConfig{
@@ -345,10 +345,10 @@ func filterChainFromProto(fc *v3listenerpb.FilterChain, bc *bootstrap.Config, sc
 		return emptyFilterChain, fmt.Errorf("failed to unmarshal DownstreamTlsContext in LDS response: %v", err)
 	}
 	if downstreamCtx.GetRequireSni().GetValue() {
-		return emptyFilterChain, fmt.Errorf("require_sni field set to true in DownstreamTlsContext message: %v", downstreamCtx)
+		return emptyFilterChain, fmt.Errorf("require_sni field set to true in DownstreamTlsContext message: %T", downstreamCtx)
 	}
 	if downstreamCtx.GetOcspStaplePolicy() != v3tlspb.DownstreamTlsContext_LENIENT_STAPLING {
-		return emptyFilterChain, fmt.Errorf("ocsp_staple_policy field set to unsupported value in DownstreamTlsContext message: %v", downstreamCtx)
+		return emptyFilterChain, fmt.Errorf("ocsp_staple_policy field set to unsupported value in DownstreamTlsContext message: %T", downstreamCtx)
 	}
 	if downstreamCtx.GetCommonTlsContext() == nil {
 		return emptyFilterChain, errors.New("DownstreamTlsContext in LDS response does not contain a CommonTlsContext")

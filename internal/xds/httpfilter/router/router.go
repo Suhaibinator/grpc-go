@@ -55,18 +55,18 @@ func (builder) ParseFilterConfig(cfg proto.Message, _ httpfilter.ParseOptions) (
 	}
 	m, ok := cfg.(*anypb.Any)
 	if !ok {
-		return nil, fmt.Errorf("router: error parsing config %v: unknown type %T", cfg, cfg)
+		return nil, fmt.Errorf("router: error parsing config: unknown type %T", cfg)
 	}
 	msg := new(pb.Router)
 	if err := m.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("router: error parsing config %v: %v", cfg, err)
+		return nil, fmt.Errorf("router: error parsing config: %v", err)
 	}
 	return config{}, nil
 }
 
 func (builder) ParseFilterConfigOverride(override proto.Message, _ httpfilter.ParseOptions) (httpfilter.FilterConfig, error) {
 	if override != nil {
-		return nil, fmt.Errorf("router: unexpected config override specified: %v", override)
+		return nil, fmt.Errorf("router: unexpected config override specified: %T", override)
 	}
 	return config{}, nil
 }

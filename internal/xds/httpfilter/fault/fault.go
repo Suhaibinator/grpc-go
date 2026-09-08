@@ -84,11 +84,11 @@ func parseConfig(cfg proto.Message) (httpfilter.FilterConfig, error) {
 	}
 	m, ok := cfg.(*anypb.Any)
 	if !ok {
-		return nil, fmt.Errorf("fault: error parsing config %v: unknown type %T", cfg, cfg)
+		return nil, fmt.Errorf("fault: error parsing config: unknown type %T", cfg)
 	}
 	msg := new(fpb.HTTPFault)
 	if err := m.UnmarshalTo(msg); err != nil {
-		return nil, fmt.Errorf("fault: error parsing config %v: %v", cfg, err)
+		return nil, fmt.Errorf("fault: error parsing config: %v", err)
 	}
 	return config{config: msg}, nil
 }

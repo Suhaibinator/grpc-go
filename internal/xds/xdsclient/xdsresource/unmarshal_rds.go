@@ -109,7 +109,7 @@ func generateRDSUpdateFromRouteConfiguration(rc *v3routepb.RouteConfiguration, b
 		}
 		cfgs, err := processHTTPFilterOverrides(vh.GetTypedPerFilterConfig(), bc, sc)
 		if err != nil {
-			return RouteConfigUpdate{}, fmt.Errorf("virtual host %+v: %v", vh, err)
+			return RouteConfigUpdate{}, fmt.Errorf("virtual host %q: %v", vh.GetName(), err)
 		}
 		vhOut.HTTPFilterConfigOverride = cfgs
 		vhs = append(vhs, vhOut)
@@ -150,7 +150,7 @@ func processClusterSpecifierPlugins(csps []*v3routepb.ClusterSpecifierPlugin) (m
 			// "If a plugin is found, the value of the typed_config field will
 			// be passed to it's conversion method, and if an error is
 			// encountered, the resource will be NACKED." - RLS in xDS design
-			return nil, fmt.Errorf("error: %q parsing config %q for cluster specifier %q of type %q", err, csp.GetExtension().GetTypedConfig(), csp.GetExtension().GetName(), csp.GetExtension().GetTypedConfig().GetTypeUrl())
+			return nil, fmt.Errorf("error: %q parsing config for cluster specifier %q of type %q", err, csp.GetExtension().GetName(), csp.GetExtension().GetTypedConfig().GetTypeUrl())
 		}
 		// "If all cluster specifiers are valid, the xDS client will store the
 		// configurations in a map keyed by the name of the extension instance." -
@@ -220,18 +220,18 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 	for _, r := range routes {
 		match := r.GetMatch()
 		if match == nil {
-			return nil, nil, fmt.Errorf("route %+v doesn't have a match", r)
+			return nil, nil, fmt.Errorf("route %q doesn't have a match", r.GetName())
 		}
 
 		if len(match.GetQueryParameters()) != 0 {
 			// Ignore route with query parameters.
-			logger.Warningf("Ignoring route %+v with query parameter matchers", r)
+			logger.Warningf("Ignoring route %q with query parameter matchers", r.GetName())
 			continue
 		}
 
 		pathSp := match.GetPathSpecifier()
 		if pathSp == nil {
-			return nil, nil, fmt.Errorf("route %+v doesn't have a path specifier", r)
+			return nil, nil, fmt.Errorf("route %q doesn't have a path specifier", r.GetName())
 		}
 
 		var route Route
@@ -244,11 +244,11 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 			regex := pt.SafeRegex.GetRegex()
 			re, err := matcher.CompileSafeRegex(regex)
 			if err != nil {
-				return nil, nil, fmt.Errorf("route %+v contains an invalid regex %q", r, regex)
+				return nil, nil, fmt.Errorf("route %q contains an invalid regex %q", r.GetName(), regex)
 			}
 			route.Regex = re
 		default:
-			return nil, nil, fmt.Errorf("route %+v has an unrecognized path specifier: %+v", r, pt)
+			return nil, nil, fmt.Errorf("route %q has an unrecognized path specifier: %+v", r.GetName(), pt)
 		}
 
 		if caseSensitive := match.GetCaseSensitive(); caseSensitive != nil {
@@ -268,7 +268,7 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 				regex := ht.SafeRegexMatch.GetRegex()
 				re, err := matcher.CompileSafeRegex(regex)
 				if err != nil {
-					return nil, nil, fmt.Errorf("route %+v contains an invalid regex %q", r, regex)
+					return nil, nil, fmt.Errorf("route %q contains an invalid regex %q", r.GetName(), regex)
 				}
 				header.RegexMatch = re
 			case *v3routepb.HeaderMatcher_RangeMatch:
@@ -286,16 +286,16 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 				smProto = &v3matcherpb.StringMatcher{MatchPattern: &v3matcherpb.StringMatcher_Contains{Contains: ht.ContainsMatch}}
 			case *v3routepb.HeaderMatcher_StringMatch:
 				if ht.StringMatch == nil {
-					return nil, nil, fmt.Errorf("route %+v has an empty string matcher", r)
+					return nil, nil, fmt.Errorf("route %q has an empty string matcher", r.GetName())
 				}
 				smProto = ht.StringMatch
 			default:
-				return nil, nil, fmt.Errorf("route %+v has an unrecognized header matcher: %+v", r, ht)
+				return nil, nil, fmt.Errorf("route %q has an unrecognized header matcher: %+v", r.GetName(), ht)
 			}
 			if smProto != nil {
 				sm, err := matcher.StringMatcherFromProto(smProto)
 				if err != nil {
-					return nil, nil, fmt.Errorf("route %+v has an invalid header matcher: %v", r, err)
+					return nil, nil, fmt.Errorf("route %q has an invalid header matcher: %v", r.GetName(), err)
 				}
 				header.StringMatch = &sm
 			}
@@ -356,13 +356,13 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 					wc := WeightedCluster{Name: c.GetName(), Weight: w}
 					cfgs, err := processHTTPFilterOverrides(c.GetTypedPerFilterConfig(), bc, sc)
 					if err != nil {
-						return nil, nil, fmt.Errorf("route %+v, action %+v: %v", r, a, err)
+						return nil, nil, fmt.Errorf("route %q, action %T: %v", r.GetName(), a, err)
 					}
 					wc.HTTPFilterConfigOverride = cfgs
 					route.WeightedClusters = append(route.WeightedClusters, wc)
 				}
 				if totalWeight == 0 {
-					return nil, nil, fmt.Errorf("route %+v, action %+v, has no valid cluster in WeightedCluster action", r, a)
+					return nil, nil, fmt.Errorf("route %q, action %T, has no valid cluster in WeightedCluster action", r.GetName(), a)
 				}
 			case *v3routepb.RouteAction_ClusterSpecifierPlugin:
 				// gRFC A28 was updated to say the following:
@@ -382,16 +382,16 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 					// cluster_specifier_plugin value that is not in
 					// RouteConfiguration.cluster_specifier_plugins, the
 					// resource will be NACKed." - RLS in xDS design
-					return nil, nil, fmt.Errorf("route %+v, action %+v, specifies a cluster specifier plugin %+v that is not in Route Configuration", r, a, a.ClusterSpecifierPlugin)
+					return nil, nil, fmt.Errorf("route %q, action %T, specifies a cluster specifier plugin %+v that is not in Route Configuration", r.GetName(), a, a.ClusterSpecifierPlugin)
 				}
 				if csps[a.ClusterSpecifierPlugin] == nil {
-					logger.Warningf("Ignoring route %+v with optional and unsupported cluster specifier plugin %+v", r, a.ClusterSpecifierPlugin)
+					logger.Warningf("Ignoring route %q with optional and unsupported cluster specifier plugin %+v", r.GetName(), a.ClusterSpecifierPlugin)
 					continue
 				}
 				cspNames[a.ClusterSpecifierPlugin] = true
 				route.ClusterSpecifierPlugin = a.ClusterSpecifierPlugin
 			default:
-				logger.Warningf("Ignoring route %+v with unknown ClusterSpecifier %+v", r, a)
+				logger.Warningf("Ignoring route %q with unknown ClusterSpecifier %+v", r.GetName(), a)
 				continue
 			}
 
@@ -408,7 +408,7 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 
 			route.RetryConfig, err = generateRetryConfig(action.GetRetryPolicy())
 			if err != nil {
-				return nil, nil, fmt.Errorf("route %+v, action %+v: %v", r, action, err)
+				return nil, nil, fmt.Errorf("route %q, action %T: %v", r.GetName(), action, err)
 			}
 
 			route.ActionType = RouteActionRoute
@@ -422,7 +422,7 @@ func routesProtoToSlice(routes []*v3routepb.Route, csps map[string]clusterspecif
 
 		cfgs, err := processHTTPFilterOverrides(r.GetTypedPerFilterConfig(), bc, sc)
 		if err != nil {
-			return nil, nil, fmt.Errorf("route %+v: %v", r, err)
+			return nil, nil, fmt.Errorf("route %q: %v", r.GetName(), err)
 		}
 		route.HTTPFilterConfigOverride = cfgs
 		routesRet = append(routesRet, &route)

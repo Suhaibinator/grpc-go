@@ -110,7 +110,7 @@ func parseEndpoints(lbEndpoints []*v3endpointpb.LbEndpoint, uniqueEndpointAddrs 
 		weight := uint32(1)
 		if w := lbEndpoint.GetLoadBalancingWeight(); w != nil {
 			if w.GetValue() == 0 {
-				return nil, fmt.Errorf("EDS response contains an endpoint with zero weight: %+v", lbEndpoint)
+				return nil, fmt.Errorf("EDS response contains an endpoint with zero weight (type %T)", lbEndpoint)
 			}
 			weight = w.GetValue()
 		}
@@ -193,7 +193,7 @@ func parseEDSRespProto(m *v3endpointpb.ClusterLoadAssignment) (EndpointsUpdate, 
 	for _, locality := range m.Endpoints {
 		l := locality.GetLocality()
 		if l == nil {
-			return EndpointsUpdate{}, fmt.Errorf("EDS response contains a locality without ID, locality: %+v", locality)
+			return EndpointsUpdate{}, fmt.Errorf("EDS response contains a locality without ID, locality type: %T", locality)
 		}
 		weight := locality.GetLoadBalancingWeight().GetValue()
 		if weight == 0 {
