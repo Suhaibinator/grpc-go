@@ -23,11 +23,13 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/credentials/tls/certprovider"
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/internal/grpctest"
 	"google.golang.org/grpc/internal/testutils"
 	"google.golang.org/grpc/testdata"
@@ -625,5 +627,44 @@ func (s) TestProvider_UpdateFailureRoot_MissingFile(t *testing.T) {
 	}
 	if err := compareKeyMaterial(km1, km2); err != nil {
 		t.Fatalf("expected provider to not update key material: %v", err)
+	}
+}
+
+type warningCaptureLogger struct {
+	grpclog.DepthLoggerV2
+	warning string
+}
+
+func (l *warningCaptureLogger) Warningf(format string, args ...any) {
+	l.warning = fmt.Sprintf(format, args...)
+}
+
+func (s) TestIdentityReloadWarningOmitsContents(t *testing.T) {
+	oldLogger := logger
+	capture := &warningCaptureLogger{DepthLoggerV2: oldLogger}
+	logger = capture
+	t.Cleanup(func() { logger = oldLogger })
+	dir := t.TempDir()
+	certPath, keyPath := path.Join(dir, certFile), path.Join(dir, keyFile)
+	const certContents = "synthetic certificate contents"
+	const keyContents = "synthetic private key contents"
+	for name, contents := range map[string]string{certPath: certContents, keyPath: keyContents} {
+		if err := os.WriteFile(name, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dist := certprovider.NewDistributor()
+	defer dist.Stop()
+	w := &watcher{opts: Options{CertFile: certPath, KeyFile: keyPath}, identityDistributor: dist}
+	w.updateIdentityDistributor()
+	for _, want := range []string{certPath, keyPath, "tls.X509KeyPair failed"} {
+		if !strings.Contains(capture.warning, want) {
+			t.Errorf("warning does not contain %q", want)
+		}
+	}
+	for _, secret := range []string{certContents, keyContents} {
+		if strings.Contains(capture.warning, secret) {
+			t.Error("warning contains credential contents")
+		}
 	}
 }
