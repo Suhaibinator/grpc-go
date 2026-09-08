@@ -28,8 +28,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc/internal/transport"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 type emptyServiceServer any
@@ -229,6 +231,61 @@ func BenchmarkChainStreamInterceptor(b *testing.B) {
 				}); err != nil {
 					b.Fatal(err)
 				}
+			}
+		})
+	}
+}
+
+func (s) TestMaxConcurrentStreamsSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		opts      []ServerOption
+		want      uint32
+		unlimited bool
+	}{
+		{name: "default", want: 250},
+		{name: "explicit_limit", opts: []ServerOption{MaxConcurrentStreams(2)}, want: 2},
+		{name: "explicit_unlimited", opts: []ServerOption{MaxConcurrentStreams(0)}, unlimited: true},
+		{name: "last_option_wins", opts: []ServerOption{MaxConcurrentStreams(2), MaxConcurrentStreams(0)}, unlimited: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lis := bufconn.Listen(1024 * 1024)
+			defer lis.Close()
+			server := NewServer(tc.opts...)
+			defer server.Stop()
+			go server.Serve(lis)
+			ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+			defer cancel()
+			conn, err := lis.DialContext(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if err := conn.SetDeadline(time.Now().Add(defaultTestTimeout)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := conn.Write([]byte(http2.ClientPreface)); err != nil {
+				t.Fatal(err)
+			}
+			framer := http2.NewFramer(conn, conn)
+			if err := framer.WriteSettings(); err != nil {
+				t.Fatal(err)
+			}
+			frame, err := framer.ReadFrame()
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings, ok := frame.(*http2.SettingsFrame)
+			if !ok {
+				t.Fatalf("first server frame = %T, want SETTINGS", frame)
+			}
+			got, found := settings.Value(http2.SettingMaxConcurrentStreams)
+			if tc.unlimited {
+				if found {
+					t.Errorf("unlimited option advertised limit %d", got)
+				}
+			} else if !found || got != tc.want {
+				t.Errorf("stream setting = %d, present=%v; want %d", got, found, tc.want)
 			}
 		})
 	}

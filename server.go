@@ -58,6 +58,8 @@ import (
 )
 
 const (
+	// Match the HTTP/2 handler transport default in golang.org/x/net/http2.
+	defaultServerMaxConcurrentStreams  = 250
 	defaultServerMaxReceiveMessageSize = 1024 * 1024 * 4
 	defaultServerMaxSendMessageSize    = math.MaxInt32
 
@@ -186,7 +188,7 @@ type serverOptions struct {
 }
 
 var defaultServerOptions = serverOptions{
-	maxConcurrentStreams:  math.MaxUint32,
+	maxConcurrentStreams:  defaultServerMaxConcurrentStreams,
 	maxReceiveMessageSize: defaultServerMaxReceiveMessageSize,
 	maxSendMessageSize:    defaultServerMaxSendMessageSize,
 	connectionTimeout:     120 * time.Second,
@@ -462,7 +464,11 @@ func MaxSendMsgSize(m int) ServerOption {
 }
 
 // MaxConcurrentStreams returns a ServerOption that will apply a limit on the number
-// of concurrent streams to each ServerTransport.
+// of concurrent streams to each ServerTransport. The default is 250.
+// Setting n to zero removes this limit. Applications using more concurrent
+// long-lived RPCs per connection should explicitly configure a larger limit.
+// Clients honoring this limit may queue calls until an active RPC finishes;
+// deadlines can expire while waiting.
 func MaxConcurrentStreams(n uint32) ServerOption {
 	if n == 0 {
 		n = math.MaxUint32
