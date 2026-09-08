@@ -144,10 +144,13 @@ func generateFile(gen *protogen.Plugin, file *protogen.File) *protogen.Generated
 	g.P("// versions:")
 	g.P("// - protoc-gen-go-grpc v", version)
 	g.P("// - protoc             ", protocVersion(gen))
+	sourcePath := strconv.Quote(file.Desc.Path())
+	// Keep descriptor paths on one comment line, including paths with control characters.
+	sourcePath = sourcePath[1 : len(sourcePath)-1]
 	if file.Proto.GetOptions().GetDeprecated() {
-		g.P("// ", file.Desc.Path(), " is a deprecated file.")
+		g.P("// ", sourcePath, " is a deprecated file.")
 	} else {
-		g.P("// source: ", file.Desc.Path())
+		g.P("// source: ", sourcePath)
 	}
 	g.P()
 	// Attach all comments associated with the package field.
@@ -436,7 +439,7 @@ func genServiceDesc(file *protogen.File, g *protogen.GeneratedFile, serviceDescV
 		g.P("},")
 	}
 	g.P("},")
-	g.P("Metadata: \"", file.Desc.Path(), "\",")
+	g.P("Metadata: ", strconv.Quote(file.Desc.Path()), ",")
 	g.P("}")
 	g.P()
 }
