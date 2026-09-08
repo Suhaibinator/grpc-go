@@ -1448,6 +1448,42 @@ func (s) TestMetricsAndTracesDisabled(t *testing.T) {
 	}
 }
 
+// TestIncompleteTraceOptions verifies the documented disabled behavior when a
+// tracing collaborator is omitted, on both client and server RPC paths.
+func (s) TestIncompleteTraceOptions(t *testing.T) {
+	for _, name := range []string{"neither", "provider_only", "propagator_only"} {
+		t.Run(name, func(t *testing.T) {
+			opts, exporter := defaultTraceOptions(t)
+			if name != "provider_only" {
+				opts.TracerProvider = nil
+			}
+			if name != "propagator_only" {
+				opts.TextMapPropagator = nil
+			}
+			ss := setupStubServer(t, nil, opts)
+			defer ss.Stop()
+			ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+			defer cancel()
+			if _, err := ss.Client.UnaryCall(ctx, &testpb.SimpleRequest{}); err != nil {
+				t.Fatalf("UnaryCall failed: %v", err)
+			}
+			stream, err := ss.Client.FullDuplexCall(ctx)
+			if err != nil {
+				t.Fatalf("FullDuplexCall failed: %v", err)
+			}
+			if err := stream.CloseSend(); err != nil {
+				t.Fatalf("CloseSend failed: %v", err)
+			}
+			if _, err := stream.Recv(); err != io.EOF {
+				t.Fatalf("Recv returned %v, want EOF", err)
+			}
+			if spans := exporter.GetSpans(); len(spans) != 0 {
+				t.Fatalf("incomplete trace options recorded %d spans, want none", len(spans))
+			}
+		})
+	}
+}
+
 // TestRPCSpanErrorStatus verifies that errors during RPC calls are correctly
 // reflected in the span status. It simulates a unary RPC that returns an error
 // and checks that the span's status is set to error with the appropriate message.

@@ -71,7 +71,7 @@ func (o *Options) isMetricsEnabled() bool {
 }
 
 func (o *Options) isTracingEnabled() bool {
-	return o.TraceOptions.TracerProvider != nil
+	return o.TraceOptions.TracerProvider != nil && o.TraceOptions.TextMapPropagator != nil
 }
 
 // MetricsOptions are the metrics options for OpenTelemetry instrumentation.
